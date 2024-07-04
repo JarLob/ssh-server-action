@@ -20,11 +20,15 @@ runs:
       fi
       
       if [[ "${RUNNER_OS}" == 'Linux' ]]; then
-        ngrokurl="https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip"
+        ngrokurl="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz"
         installcmd="sudo apt-get -qy"
+        extract="tar xvzf"
+        extract_dest="-C"
       else
         ngrokurl="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-amd64.zip"
         installcmd="brew"
+        extract="unzip"
+        extract_dest="-d"
       fi
 
       if ! [[ -f /usr/sbin/sshd ]]; then
@@ -34,7 +38,7 @@ runs:
       if ! command -v ngrok > /dev/null; then
         $installcmd install curl unzip
         curl -o /tmp/ngrok.zip -sL $ngrokurl
-        sudo unzip /tmp/ngrok.zip -d /usr/local/bin
+        sudo $extract /tmp/ngrok.zip $extract_dest /usr/local/bin
         rm /tmp/ngrok.zip
       fi
 
