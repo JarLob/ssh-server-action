@@ -10,11 +10,24 @@ on:
         description: 'When set to non-zero, a step will fail causing the SSH server to be started'
         required: true
         default: "0"
+      os:
+        description: 'OS'
+        required: true
+        default: 'macos-latest'
+        type: choice
+        options:
+          - macos-latest
+          - ubuntu-latest
+      timeout:
+        description: 'How long to run (minutes)'
+        required: false
+        type: number
+        default: "10"
 
 jobs:
   sample:
     name: Sample
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.os }}
     steps:
     - uses: actions/checkout@v2
 
@@ -24,7 +37,7 @@ jobs:
 
     - name: Start SSH server on failure
       if: ${{ failure() }}
-      timeout-minutes: 10
+      timeout-minutes: ${{ fromJSON(inputs.timeout) }}
       uses: ./
       with:
         ngrok-authtoken: "${{ secrets.NGROK_AUTHTOKEN }}"
