@@ -18,6 +18,7 @@ on:
         options:
           - macos-latest
           - ubuntu-latest
+          - windows-latest
       timeout:
         description: 'How long to run (minutes)'
         required: false
