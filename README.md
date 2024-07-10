@@ -8,7 +8,6 @@ When the server is ready, you will see a message in your workflow output similar
 To SSH to this runner: `ssh -i /path/to/private/key -p 11111 runner@0.tcp.ngrok.io`
 ```
 
-Due to [an issue with workflow output](https://github.community/t/how-to-see-the-full-log-while-a-workflow-is-in-progress/17455), you will only see the message if you were already viewing the workflow logs when the message was printed (or when the workflow finishes, but the server will no longer be running).
 In that case you can find the tunnel address on [ngrok's status page](https://dashboard.ngrok.com/status/tunnels).
 
 # Usage
