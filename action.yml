@@ -1,6 +1,6 @@
 name: 'SSH Server'
 description: 'Expose an SSH server via ngrok that you can use to connect to your github runner'
-author: 'Mark DeLillo'
+author: 'Mark DeLillo & Jaroslav Lobačevski'
 inputs:
   ngrok-authtoken:
     description: 'ngrok authtoken'
@@ -11,20 +11,38 @@ inputs:
 runs:
   using: 'composite'
   steps:
-  - name: Install dependencies
+  - name: Check runner
     shell: bash
     run: |
-      if [[ "${RUNNER_OS}" != 'Linux' ]] && [[ "${RUNNER_OS}" != 'macOS' ]]; then
+      if [[ "${RUNNER_OS}" != 'Linux' ]] && [[ "${RUNNER_OS}" != 'macOS' ]] && [[ "${RUNNER_OS}" != 'Windows' ]]; then
         echo "${RUNNER_OS} is not supported"
         exit 1
       fi
-      
+
+  - name: Install dependencies
+    if: runner.os == 'Windows'
+    shell: cmd
+    run: |
+      curl -o jq.exe -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-win64.exe
+      curl -o ngrok.zip -sL https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip
+      unzip ngrok.zip -d ./
+      curl -o OpenSSH.msi -sL https://github.com/PowerShell/Win32-OpenSSH/releases/download/v9.5.0.0p1-Beta/OpenSSH-Win64-v9.5.0.0.msi
+      msiexec.exe /i OpenSSH.msi /qn
+
+  - name: Install dependencies
+    if: runner.os != 'Windows'
+    shell: bash
+    run: |      
       if [[ "${RUNNER_OS}" == 'Linux' ]]; then
-        ngrokurl="https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip"
+        ngrokurl="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz"
         installcmd="sudo apt-get -qy"
+        extract="tar xvzf"
+        extract_dest="-C"
       else
-        ngrokurl="https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-darwin-amd64.zip"
+        ngrokurl="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-amd64.zip"
         installcmd="brew"
+        extract="unzip"
+        extract_dest="-d"
       fi
 
       if ! [[ -f /usr/sbin/sshd ]]; then
@@ -34,11 +52,28 @@ runs:
       if ! command -v ngrok > /dev/null; then
         $installcmd install curl unzip
         curl -o /tmp/ngrok.zip -sL $ngrokurl
-        sudo unzip /tmp/ngrok.zip -d /usr/local/bin
+        sudo $extract /tmp/ngrok.zip $extract_dest /usr/local/bin
         rm /tmp/ngrok.zip
       fi
 
   - name: Get free port
+    if: runner.os == 'Windows'
+    id: get-free-port-win
+    shell: powershell
+    run: |
+      for ($i = 10000; $i -le 65535; $i++) {
+          $test = Test-NetConnection -ComputerName localhost -Port $i
+          if (-not $test.TcpTestSucceeded) {
+              echo "Port $i is free."
+              echo "port=$i" >> $Env:GITHUB_OUTPUT
+              exit 0
+          }
+      }
+      echo "Could not find free port"
+      exit 1
+
+  - name: Get free port
+    if: runner.os != 'Windows'
     id: get-free-port
     shell: bash
     run: |
@@ -56,41 +91,65 @@ runs:
         exit 1
       fi
 
-      echo "::set-output name=port::${port}"
+      echo "port=${port}" >> $GITHUB_OUTPUT
 
   - name: Start sshd
     shell: bash
     run: |
-      sudo mkdir -p /var/log/sshd
+      sudo_command=
+      sshd_config_location=${ProgramData}/ssh/sshd_config
+      port_number=${{ steps.get-free-port-win.outputs.port }}
+      sshd_command='C:\\Program Files\\OpenSSH\\sshd.exe'
+      sshd_log_dir=${ProgramData}/ssh/logs
 
-      if [[ "${RUNNER_OS}" == 'Linux' ]]; then
-        chmod 0770 "${HOME}"
-      else
+      if [[ "${RUNNER_OS}" != 'Windows' ]]; then
+        sudo_command=sudo
+        sshd_config_location=/etc/ssh/sshd_config
+        port_number=${{ steps.get-free-port.outputs.port }}
+        sshd_command=/usr/sbin/sshd
+        sshd_log_dir=/var/log/sshd
+      fi
+
+      if [[ "${RUNNER_OS}" == 'macOS' ]]; then
         chmod g-w "${HOME}"
+      else
+        chmod 0770 "${HOME}"
       fi
       
-      mkdir -p "${HOME}/.ssh"
-      chmod 0700 "${HOME}/.ssh"
-      echo "${{ inputs.ssh-public-key }}" > "${HOME}/.ssh/authorized_keys"
-      chmod 0600 "${HOME}/.ssh/authorized_keys"
+      if [[ "${RUNNER_OS}" == 'Windows' ]]; then
+        echo "${{ inputs.ssh-public-key }}" > "${ProgramData}/ssh/administrators_authorized_keys"
+      else
+        mkdir -p "${HOME}/.ssh"
+        echo "${{ inputs.ssh-public-key }}" > "${HOME}/.ssh/authorized_keys"
+        chmod 0700 "${HOME}/.ssh"
+        chmod 0600 "${HOME}/.ssh/authorized_keys"
+      fi
 
       ssh-keygen -A
 
-      sudo sed -i.bak 's/^#PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
-      sudo sed -i.bak 's/^PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
+      $sudo_command sed -i.bak 's/^#PasswordAuthentication .*/PasswordAuthentication no/' "$sshd_config_location"
+      $sudo_command sed -i.bak 's/^PasswordAuthentication .*/PasswordAuthentication no/' "$sshd_config_location"
 
-      sudo sed -i.bak 's/^#PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
-      sudo sed -i.bak 's/^PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+      $sudo_command sed -i.bak 's/^#PubkeyAuthentication .*/PubkeyAuthentication yes/' "$sshd_config_location"
+      $sudo_command sed -i.bak 's/^PubkeyAuthentication .*/PubkeyAuthentication yes/' "$sshd_config_location"
 
-      sudo sed -i.bak 's/^#Port .*/Port ${{ steps.get-free-port.outputs.port }}/' /etc/ssh/sshd_config
-      sudo sed -i.bak 's/^Port .*/Port ${{ steps.get-free-port.outputs.port }}/' /etc/ssh/sshd_config
+      $sudo_command sed -i.bak "s/^#Port .*/Port $port_number/" "$sshd_config_location"
+      $sudo_command sed -i.bak "s/^Port .*/Port $port_number/" "$sshd_config_location"
 
-      sudo /usr/sbin/sshd -D -E /var/log/sshd/sshd.log &
+      $sudo_command "$sshd_command" -D -E $sshd_log_dir/sshd.log &
 
   - name: Start ngrok
     shell: bash
     run: |
-      ngrok authtoken "${{ inputs.ngrok-authtoken }}"
+      ngrok_command=ngrok
+      runner_user="runner"
+
+      if [[ "${RUNNER_OS}" == 'Windows' ]]; then
+        ngrok_command=./ngrok
+        runner_user="runneradmin"
+      fi
+
+      $ngrok_command authtoken "${{ inputs.ngrok-authtoken }}"
 
       {
         while true; do
@@ -98,7 +157,7 @@ runs:
             ngrok_url="$(curl -s 'http://localhost:4040/api/tunnels' | jq -r '.tunnels[0].public_url' | sed 's|tcp://||')"
             host="$(echo "${ngrok_url}" | cut -d':' -f1)"
             port="$(echo "${ngrok_url}" | cut -d':' -f2)"
-            echo -e "\nTo SSH to this runner: \`ssh -i /path/to/private/key -p ${port} runner@${host}\`\n"
+            echo -e "\nTo SSH to this runner: ssh -i /path/to/private/key -p ${port} ${runner_user}@${host}\n"
             break
           fi
 
@@ -106,4 +165,8 @@ runs:
         done
       } &
 
-      ngrok tcp --log stdout --log-format term ${{ steps.get-free-port.outputs.port }}
+      if [[ "${RUNNER_OS}" == 'Windows' ]]; then
+        $ngrok_command tcp --log stdout --log-format term ${{ steps.get-free-port-win.outputs.port }}
+      else
+        $ngrok_command tcp --log stdout --log-format term ${{ steps.get-free-port.outputs.port }}
+      fi
