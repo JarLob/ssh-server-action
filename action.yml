@@ -34,7 +34,11 @@ runs:
     shell: bash
     run: |      
       if [[ "${RUNNER_OS}" == 'Linux' ]]; then
-        ngrokurl="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz"
+        if [[ "${RUNNER_ARCH}" == 'ARM64' ]]; then
+          ngrokurl="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.tgz"
+        else
+          ngrokurl="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz"
+        fi
         installcmd="sudo apt-get -qy"
         extract="tar xvzf"
         extract_dest="-C"
